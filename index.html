@@ -6,15 +6,17 @@
     <style>
         body {
             display: flex;
+            flex-direction: column; 
             justify-content: center;
             align-items: center;
             height: 100vh;
             margin: 0;
             background-color: #333;
+            font-family: sans-serif;
         }
         canvas {
-            background-color: #2a8c4a; /* コースの緑色 */
-            border: 4px solid #c2b280; /* 木枠のような色 */
+            background-color: #2a8c4a;
+            border: 4px solid #c2b280;
             cursor: pointer;
         }
         #ballImageContainer {
@@ -26,9 +28,15 @@
             left: 0;
             top: 0;
         }
+        h1 {
+            color: yellow;
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
+    <h1>OIIAをひっぱってゴールに入れよう！</h1>
+
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     <div id="ballImageContainer">
         <img id="staticCat" src="cat_static.png" alt="静止猫">
@@ -60,11 +68,10 @@
             color: 'black'
         };
 
-        // ★修正点: 障害物に関する設定
         const obstacles = [];
-        const numObstacles = 7; // 生成する障害物の数を7に変更
-        const minObstacleSize = 80; // 最小サイズを80に変更
-        const maxObstacleSize = 160; // 最大サイズを160に変更
+        const numObstacles = 7;
+        const minObstacleSize = 80;
+        const maxObstacleSize = 160;
         const safeZonePadding = 100;
 
         const friction = 0.985;
@@ -237,8 +244,7 @@
             for (const obstacle of obstacles) {
                 if (checkCollision(ball, obstacle)) {
                     const prevX = ball.x - ball.vx;
-                    const prevY = ball.y - ball.vy;
-
+                    
                     if (prevX + ball.radius <= obstacle.x || prevX - ball.radius >= obstacle.x + obstacle.width) {
                         ball.vx *= -1;
                         if (ball.x < obstacle.x) ball.x = obstacle.x - ball.radius;
@@ -285,10 +291,17 @@
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             ctx.fillStyle = hole.color;
             ctx.beginPath();
             ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
             ctx.fill();
+
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('ゴール', hole.x, hole.y - hole.radius - 5);
 
             for (const obstacle of obstacles) {
                 ctx.fillStyle = obstacle.color;
@@ -298,7 +311,8 @@
             updateBallImagePosition();
 
             if (isDragging) {
-                const currentMousePos = getMousePos(event); 
+                // ★修正点: 引数なしで呼び出すことでエラーを解消
+                const currentMousePos = getMousePos(); 
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -307,6 +321,8 @@
                 ctx.stroke();
             }
             
+            ctx.textAlign = 'left'; 
+            ctx.textBaseline = 'alphabetic';
             ctx.fillStyle = 'white';
             ctx.font = '24px Arial';
             ctx.fillText(`打数: ${strokes}`, 20, 40);
@@ -315,7 +331,7 @@
                 ctx.fillStyle = 'yellow';
                 ctx.font = '60px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText('カップイン！', canvas.width / 2, canvas.height / 2);
+                ctx.fillText('ゴール！', canvas.width / 2, canvas.height / 2);
                 ctx.font = '30px Arial';
                 ctx.fillText(`スコア: ${strokes}打`, canvas.width / 2, canvas.height / 2 + 50);
             }
