@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ミニゴルフゲーム - 猫ゴルフ</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #333;
+        }
+        canvas {
+            background-color: #2a8c4a; /* コースの緑色 */
+            border: 4px solid #c2b280; /* 木枠のような色 */
+            cursor: pointer;
+        }
+        #ballImageContainer {
+            position: absolute;
+            pointer-events: none;
+        }
+        #ballImageContainer img {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="ballImageContainer">
+        <img id="staticCat" src="cat_static.png" alt="静止猫">
+        <img id="rotatingCat" src="cat_rotate.gif" alt="回転猫" style="display: none;">
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const ballImageContainer = document.getElementById('ballImageContainer');
+        const staticCatImg = document.getElementById('staticCat');
+        const rotatingCatImg = document.getElementById('rotatingCat');
+        
+        const meowSound = new Audio('cat_meow.mp3');
+        meowSound.loop = true;
+
+        const ball = {
+            x: 100,
+            y: 300,
+            radius: 20, 
+            vx: 0,
+            vy: 0,
+        };
+
+        const hole = {
+            x: 700,
+            y: 300,
+            radius: 15,
+            color: 'black'
+        };
+
+        // ★修正点: 障害物に関する設定
+        const obstacles = [];
+        const numObstacles = 7; // 生成する障害物の数を7に変更
+        const minObstacleSize = 80; // 最小サイズを80に変更
+        const maxObstacleSize = 160; // 最大サイズを160に変更
+        const safeZonePadding = 100;
+
+        const friction = 0.985;
+        let strokes = 0;
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let hasWon = false;
+
+        function setupPositions() {
+            const canvasRect = canvas.getBoundingClientRect();
+            ballImageContainer.style.left = canvasRect.left + 'px';
+            ballImageContainer.style.top = canvasRect.top + 'px';
+            ballImageContainer.style.width = canvasRect.width + 'px';
+            ballImageContainer.style.height = canvasRect.height + 'px';
+
+            staticCatImg.style.width = (ball.radius * 2) + 'px';
+            staticCatImg.style.height = (ball.radius * 2) + 'px';
+            rotatingCatImg.style.width = (ball.radius * 2) + 'px';
+            rotatingCatImg.style.height = (ball.radius * 2) + 'px';
+        }
+        
+        function checkCollision(obj1, obj2) {
+            if (obj1.radius !== undefined && obj2.width !== undefined) {
+                let testX = obj1.x;
+                let testY = obj1.y;
+
+                if (obj1.x < obj2.x) testX = obj2.x;
+                else if (obj1.x > obj2.x + obj2.width) testX = obj2.x + obj2.width;
+                if (obj1.y < obj2.y) testY = obj2.y;
+                else if (obj1.y > obj2.y + obj2.height) testY = obj2.y + obj2.height;
+
+                let distX = obj1.x - testX;
+                let distY = obj1.y - testY;
+                return (distX * distX + distY * distY <= obj1.radius * obj1.radius);
+            } 
+            else if (obj1.width !== undefined && obj2.width !== undefined) {
+                return obj1.x < obj2.x + obj2.width &&
+                       obj1.x + obj1.width > obj2.x &&
+                       obj1.y < obj2.y + obj2.height &&
+                       obj1.y + obj1.height > obj2.y;
+            }
+            return false;
+        }
+
+        function generateObstacles() {
+            obstacles.length = 0;
+
+            const ballSafeRect = {
+                x: ball.x - ball.radius - safeZonePadding,
+                y: ball.y - ball.radius - safeZonePadding,
+                width: ball.radius * 2 + safeZonePadding * 2,
+                height: ball.radius * 2 + safeZonePadding * 2
+            };
+            const holeSafeRect = {
+                x: hole.x - hole.radius - safeZonePadding,
+                y: hole.y - hole.radius - safeZonePadding,
+                width: hole.radius * 2 + safeZonePadding * 2,
+                height: hole.radius * 2 + safeZonePadding * 2
+            };
+
+            for (let i = 0; i < numObstacles; i++) {
+                let newObstacle;
+                let validPosition = false;
+                let attempts = 0;
+
+                while (!validPosition && attempts < 100) {
+                    const width = minObstacleSize + Math.random() * (maxObstacleSize - minObstacleSize);
+                    const height = minObstacleSize + Math.random() * (maxObstacleSize - minObstacleSize);
+                    const x = Math.random() * (canvas.width - width);
+                    const y = Math.random() * (canvas.height - height);
+
+                    newObstacle = { x, y, width, height, color: '#444' };
+
+                    if (x < 0 || y < 0 || x + width > canvas.width || y + height > canvas.height) {
+                        attempts++;
+                        continue;
+                    }
+
+                    if (checkCollision(newObstacle, ballSafeRect) || checkCollision(newObstacle, holeSafeRect)) {
+                        attempts++;
+                        continue;
+                    }
+
+                    let overlapsWithOthers = false;
+                    for (const existingObstacle of obstacles) {
+                        if (checkCollision(newObstacle, existingObstacle)) {
+                            overlapsWithOthers = true;
+                            break;
+                        }
+                    }
+                    if (overlapsWithOthers) {
+                        attempts++;
+                        continue;
+                    }
+
+                    validPosition = true;
+                }
+                if (validPosition) {
+                    obstacles.push(newObstacle);
+                }
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (hasWon || (ball.vx !== 0 && ball.vy !== 0) ) return;
+            const mousePos = getMousePos(e);
+            const dist = Math.hypot(mousePos.x - ball.x, mousePos.y - ball.y);
+            
+            if (dist < ball.radius) {
+                isDragging = true;
+                dragStart.x = mousePos.x;
+                dragStart.y = mousePos.y;
+                
+                staticCatImg.style.display = 'none';
+                rotatingCatImg.style.display = 'block';
+
+                meowSound.playbackRate = 1.0;
+                meowSound.currentTime = 0;
+                meowSound.play();
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (!isDragging || hasWon) return;
+            isDragging = false;
+            const mousePos = getMousePos(e);
+
+            const power = 0.15;
+            ball.vx = (dragStart.x - mousePos.x) * power;
+            ball.vy = (dragStart.y - mousePos.y) * power;
+            strokes++;
+            
+            if (ball.vx === 0 && ball.vy === 0) {
+                 staticCatImg.style.display = 'block';
+                 rotatingCatImg.style.display = 'none';
+                 meowSound.pause();
+            }
+        });
+        
+        function update() {
+            if (hasWon) return;
+
+            const currentSpeed = Math.hypot(ball.vx, ball.vy);
+
+            if (!isDragging && currentSpeed > 0 && currentSpeed < 0.05) {
+                ball.vx = 0;
+                ball.vy = 0;
+                staticCatImg.style.display = 'block';
+                rotatingCatImg.style.display = 'none';
+                
+                meowSound.pause();
+                meowSound.currentTime = 0;
+            } else {
+                 ball.vx *= friction;
+                 ball.vy *= friction;
+            }
+
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
+                ball.vx *= -1;
+                ball.x = (ball.x + ball.radius > canvas.width) ? canvas.width - ball.radius : ball.radius;
+            }
+            if (ball.y + ball.radius > canvas.height || ball.y - ball.radius < 0) {
+                ball.vy *= -1;
+                ball.y = (ball.y + ball.radius > canvas.height) ? canvas.height - ball.radius : ball.radius;
+            }
+
+            for (const obstacle of obstacles) {
+                if (checkCollision(ball, obstacle)) {
+                    const prevX = ball.x - ball.vx;
+                    const prevY = ball.y - ball.vy;
+
+                    if (prevX + ball.radius <= obstacle.x || prevX - ball.radius >= obstacle.x + obstacle.width) {
+                        ball.vx *= -1;
+                        if (ball.x < obstacle.x) ball.x = obstacle.x - ball.radius;
+                        else ball.x = obstacle.x + obstacle.width + ball.radius;
+                    } 
+                    else {
+                        ball.vy *= -1;
+                        if (ball.y < obstacle.y) ball.y = obstacle.y - ball.radius;
+                        else ball.y = obstacle.y + obstacle.height + ball.radius;
+                    }
+                    ball.vx *= 0.8;
+                    ball.vy *= 0.8;
+                }
+            }
+
+            const distToHole = Math.hypot(ball.x - hole.x, ball.y - hole.y);
+            if (distToHole < hole.radius && currentSpeed < 3) {
+                hasWon = true;
+                ball.vx = 0;
+                ball.vy = 0;
+                staticCatImg.style.display = 'block';
+                rotatingCatImg.style.display = 'none';
+                meowSound.pause();
+
+                setTimeout(() => {
+                    window.location.href = "https://www.youtube.com/watch?v=IxX_QHay02M&t=30s";
+                }, 1500);
+            }
+
+            if (!isDragging && (ball.vx !== 0 || ball.vy !== 0)) {
+                const maxSpeed = 20; 
+                let playbackRate = 0.5 + (currentSpeed / maxSpeed) * 1.5;
+                playbackRate = Math.max(0.2, Math.min(2.0, playbackRate));
+                meowSound.playbackRate = playbackRate;
+            }
+        }
+        
+        function updateBallImagePosition() {
+            const imageX = ball.x - ball.radius;
+            const imageY = ball.y - ball.radius;
+            staticCatImg.style.transform = `translate(${imageX}px, ${imageY}px)`;
+            rotatingCatImg.style.transform = `translate(${imageX}px, ${imageY}px)`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = hole.color;
+            ctx.beginPath();
+            ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            for (const obstacle of obstacles) {
+                ctx.fillStyle = obstacle.color;
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            }
+
+            updateBallImagePosition();
+
+            if (isDragging) {
+                const currentMousePos = getMousePos(event); 
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(ball.x, ball.y);
+                ctx.lineTo(ball.x + (ball.x - currentMousePos.x), ball.y + (ball.y - currentMousePos.y));
+                ctx.stroke();
+            }
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '24px Arial';
+            ctx.fillText(`打数: ${strokes}`, 20, 40);
+
+            if (hasWon) {
+                ctx.fillStyle = 'yellow';
+                ctx.font = '60px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('カップイン！', canvas.width / 2, canvas.height / 2);
+                ctx.font = '30px Arial';
+                ctx.fillText(`スコア: ${strokes}打`, canvas.width / 2, canvas.height / 2 + 50);
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        let currentEvent;
+        canvas.addEventListener('mousemove', e => { currentEvent = e; });
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const event = e || currentEvent; 
+            return {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top
+            };
+        }
+        
+        window.onload = () => {
+            setupPositions();
+            generateObstacles();
+            updateBallImagePosition();
+            gameLoop();
+        };
+        window.onresize = setupPositions;
+    </script>
+</body>
+</html>
