@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OIIAGOLF - NEKO</title>
+    <title>OIIA - OIIAゴルフ</title>
     <style>
         body {
             display: flex;
@@ -13,20 +13,21 @@
             margin: 0;
             background-color: #333;
             font-family: sans-serif;
+            overflow: auto;
+        }
+        #game-container {
+            position: relative;
         }
         canvas {
             background-color: #2a8c4a;
             border: 4px solid #c2b280;
             cursor: pointer;
+            display: block;
         }
-        #ballImageContainer {
+        .cat-image {
             position: absolute;
             pointer-events: none;
-        }
-        #ballImageContainer img {
-            position: absolute;
-            left: 0;
-            top: 0;
+            display: none;
         }
         h1 {
             color: yellow;
@@ -37,304 +38,398 @@
 <body>
     <h1>OIIAをひっぱってゴールに入れよう！</h1>
 
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
-    <div id="ballImageContainer">
-        <img id="staticCat" src="cat_static.png" alt="静止猫">
-        <img id="rotatingCat" src="cat_rotate.gif" alt="回転猫" style="display: none;">
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <img id="staticCat" src="cat_static.png" class="cat-image" alt="静止猫">
+        <img id="rotatingCat" src="cat_rotate.gif" class="cat-image" alt="回転猫">
     </div>
-
+    
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const ballImageContainer = document.getElementById('ballImageContainer');
+        
         const staticCatImg = document.getElementById('staticCat');
         const rotatingCatImg = document.getElementById('rotatingCat');
-        
+
         const meowSound = new Audio('cat_meow.mp3');
         meowSound.loop = true;
+        const damageSound = new Audio('down.mp3');
+
+        let lives = 5;
+        let currentStage = 1;
+        let isGameOver = false;
+        let isInvincible = false; 
+
+        let isTakingDamage = false;
+        let fadeAlpha = 0;
+        let fadeIn = true;
 
         const ball = {
-            x: 100,
-            y: 300,
-            radius: 20, 
-            vx: 0,
-            vy: 0,
+            x: 100, y: 300, radius: 20, vx: 0, vy: 0,
         };
 
-        const hole = {
-            x: 700,
-            y: 300,
-            radius: 15,
-            color: 'black'
-        };
+        const hole = { x: 700, y: 300, radius: 15, color: 'black' };
 
-        const obstacles = [];
-        const numObstacles = 7;
-        const minObstacleSize = 80;
-        const maxObstacleSize = 160;
-        const safeZonePadding = 100;
-
+        const staticObstacles = [];
+        const movingObstacles = [];
+        const spikeObstacles = [];
+        
         const friction = 0.985;
-        let strokes = 0;
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
-        let hasWon = false;
 
-        function setupPositions() {
-            const canvasRect = canvas.getBoundingClientRect();
-            ballImageContainer.style.left = canvasRect.left + 'px';
-            ballImageContainer.style.top = canvasRect.top + 'px';
-            ballImageContainer.style.width = canvasRect.width + 'px';
-            ballImageContainer.style.height = canvasRect.height + 'px';
+        function setCanvasSize(width, height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
 
-            staticCatImg.style.width = (ball.radius * 2) + 'px';
-            staticCatImg.style.height = (ball.radius * 2) + 'px';
-            rotatingCatImg.style.width = (ball.radius * 2) + 'px';
-            rotatingCatImg.style.height = (ball.radius * 2) + 'px';
+        function loadStage(stageNum) {
+            if (stageNum > 3) {
+                isGameOver = true;
+                setCanvasSize(800, 600);
+                setTimeout(() => {
+                    window.location.href = "https://www.youtube.com/watch?v=IxX_QHay02M&t=30s";
+                }, 3000);
+                return;
+            }
+
+            currentStage = stageNum;
+            isInvincible = false;
+            
+            setCanvasSize(800, 600);
+            ball.x = 100; ball.y = 300;
+            hole.x = 700; hole.y = 300;
+            ball.vx = 0; ball.vy = 0;
+
+            staticObstacles.length = 0;
+            movingObstacles.length = 0;
+            spikeObstacles.length = 0;
+
+            switch (stageNum) {
+                case 1:
+                    generateStaticObstacles(5, 60, 120);
+                    for (let i=0; i<3; i++) {
+                        const size = 60 + Math.random() * 20;
+                        movingObstacles.push({ x: 200 + i*180, y: 100 + Math.random()*200, width: size, height: size, vx: 0, vy: (1.5 + Math.random()) * 0.5, color: '#555' });
+                    }
+                    for (let i=0; i<3; i++) {
+                        const size = 60 + Math.random() * 20;
+                        movingObstacles.push({ x: 150 + Math.random()*200, y: 150 + i*150, width: size, height: size, vx: (1.5 + Math.random()) * 0.5, vy: 0, color: '#555' });
+                    }
+                    break;
+                case 2:
+                    generateStaticObstacles(3, 50, 100);
+                    movingObstacles.push({ x: 250, y: 150, width: 150, height: 30, vx: 0, vy: 1, color: '#555' });
+                    movingObstacles.push({ x: 500, y: 450, width: 150, height: 30, vx: 0, vy: -1, color: '#555' });
+                    spikeObstacles.push({ x: 300, y: 300, size: 40, points: 8, color: 'red' });
+                    spikeObstacles.push({ x: 500, y: 200, size: 40, points: 8, color: 'red' });
+                    break;
+                case 3:
+                    ball.x = 50; ball.y = 300;
+                    hole.x = 750; hole.y = 300;
+                    
+                    // ★修正: 可動域を定義
+                    const centerY = canvas.height / 2;
+                    const range = (canvas.height / 2) * 1.3; // 全体の半分の1.3倍
+                    const minY = centerY - range / 2;
+                    const maxY = centerY + range / 2;
+
+                    for (let i = 0; i < 5; i++) {
+                        movingObstacles.push({
+                            x: 150 + i * 120, y: minY + Math.random() * (range - 120), // 初期位置も範囲内に
+                            width: 60, height: 120,
+                            vx: 0, vy: (2.5 + Math.random()) * 0.5,
+                            minY: minY, // 可動域の下限
+                            maxY: maxY, // 可動域の上限
+                            color: '#555'
+                        });
+                    }
+                    break;
+            }
+        }
+
+        function takeDamage() {
+            if (isTakingDamage || isInvincible) return; 
+            lives--;
+            isTakingDamage = true;
+            isInvincible = true;
+            fadeIn = true;
+            fadeAlpha = 0;
+            meowSound.pause();
+            damageSound.currentTime = 0;
+            damageSound.play();
         }
         
         function checkCollision(obj1, obj2) {
-            if (obj1.radius !== undefined && obj2.width !== undefined) {
-                let testX = obj1.x;
-                let testY = obj1.y;
-
-                if (obj1.x < obj2.x) testX = obj2.x;
-                else if (obj1.x > obj2.x + obj2.width) testX = obj2.x + obj2.width;
-                if (obj1.y < obj2.y) testY = obj2.y;
-                else if (obj1.y > obj2.y + obj2.height) testY = obj2.y + obj2.height;
-
-                let distX = obj1.x - testX;
-                let distY = obj1.y - testY;
-                return (distX * distX + distY * distY <= obj1.radius * obj1.radius);
-            } 
-            else if (obj1.width !== undefined && obj2.width !== undefined) {
-                return obj1.x < obj2.x + obj2.width &&
-                       obj1.x + obj1.width > obj2.x &&
-                       obj1.y < obj2.y + obj2.height &&
-                       obj1.y + obj1.height > obj2.y;
+            if (obj1.radius && obj2.width) {
+                let closestX = Math.max(obj2.x, Math.min(obj1.x, obj2.x + obj2.width));
+                let closestY = Math.max(obj2.y, Math.min(obj1.y, obj2.y + obj2.height));
+                let dX = obj1.x - closestX;
+                let dY = obj1.y - closestY;
+                return (dX * dX + dY * dY) < (obj1.radius * obj1.radius);
+            } else if (obj1.width && obj1.height && obj2.width && obj2.height) {
+                 return obj1.x < obj2.x + obj2.width && obj1.x + obj1.width > obj2.x && obj1.y < obj2.y + obj2.height && obj1.y + obj1.height > obj2.y;
             }
             return false;
         }
 
-        function generateObstacles() {
-            obstacles.length = 0;
-
-            const ballSafeRect = {
-                x: ball.x - ball.radius - safeZonePadding,
-                y: ball.y - ball.radius - safeZonePadding,
-                width: ball.radius * 2 + safeZonePadding * 2,
-                height: ball.radius * 2 + safeZonePadding * 2
-            };
-            const holeSafeRect = {
-                x: hole.x - hole.radius - safeZonePadding,
-                y: hole.y - hole.radius - safeZonePadding,
-                width: hole.radius * 2 + safeZonePadding * 2,
-                height: hole.radius * 2 + safeZonePadding * 2
-            };
-
-            for (let i = 0; i < numObstacles; i++) {
-                let newObstacle;
-                let validPosition = false;
-                let attempts = 0;
-
+        function generateStaticObstacles(num, minSize, maxSize) {
+            const safeZonePadding = 100;
+            const ballSafeRect = { x: ball.x - safeZonePadding, y: ball.y - safeZonePadding, width: safeZonePadding*2, height: safeZonePadding*2 };
+            const holeSafeRect = { x: hole.x - safeZonePadding, y: hole.y - safeZonePadding, width: safeZonePadding*2, height: safeZonePadding*2 };
+            for (let i = 0; i < num; i++) {
+                let newObstacle, validPosition = false, attempts = 0;
                 while (!validPosition && attempts < 100) {
-                    const width = minObstacleSize + Math.random() * (maxObstacleSize - minObstacleSize);
-                    const height = minObstacleSize + Math.random() * (maxObstacleSize - minObstacleSize);
+                    const width = minSize + Math.random() * (maxSize - minSize);
+                    const height = minSize + Math.random() * (maxSize - minSize);
                     const x = Math.random() * (canvas.width - width);
                     const y = Math.random() * (canvas.height - height);
-
                     newObstacle = { x, y, width, height, color: '#444' };
-
-                    if (x < 0 || y < 0 || x + width > canvas.width || y + height > canvas.height) {
-                        attempts++;
-                        continue;
-                    }
-
                     if (checkCollision(newObstacle, ballSafeRect) || checkCollision(newObstacle, holeSafeRect)) {
-                        attempts++;
-                        continue;
+                        attempts++; continue;
                     }
-
                     let overlapsWithOthers = false;
-                    for (const existingObstacle of obstacles) {
-                        if (checkCollision(newObstacle, existingObstacle)) {
-                            overlapsWithOthers = true;
-                            break;
-                        }
-                    }
-                    if (overlapsWithOthers) {
-                        attempts++;
-                        continue;
-                    }
-
+                    for (const existing of staticObstacles) { if (checkCollision(newObstacle, existing)) { overlapsWithOthers = true; break; } }
+                    if (overlapsWithOthers) { attempts++; continue; }
                     validPosition = true;
                 }
-                if (validPosition) {
-                    obstacles.push(newObstacle);
-                }
+                if (validPosition) staticObstacles.push(newObstacle);
             }
         }
 
         canvas.addEventListener('mousedown', (e) => {
-            if (hasWon || (ball.vx !== 0 && ball.vy !== 0) ) return;
+            if (isGameOver || isTakingDamage) return;
             const mousePos = getMousePos(e);
-            const dist = Math.hypot(mousePos.x - ball.x, mousePos.y - ball.y);
-            
-            if (dist < ball.radius) {
+            if (Math.hypot(mousePos.x - ball.x, mousePos.y - ball.y) < ball.radius) {
                 isDragging = true;
                 dragStart.x = mousePos.x;
                 dragStart.y = mousePos.y;
-                
-                staticCatImg.style.display = 'none';
-                rotatingCatImg.style.display = 'block';
-
+                ball.vx = 0;
+                ball.vy = 0;
                 meowSound.playbackRate = 1.0;
                 meowSound.currentTime = 0;
                 meowSound.play();
             }
         });
-
-        canvas.addEventListener('mouseup', (e) => {
-            if (!isDragging || hasWon) return;
+        
+        window.addEventListener('mouseup', (e) => {
+            if (!isDragging) return;
             isDragging = false;
+            isInvincible = false;
             const mousePos = getMousePos(e);
-
-            const power = 0.15;
-            ball.vx = (dragStart.x - mousePos.x) * power;
-            ball.vy = (dragStart.y - mousePos.y) * power;
-            strokes++;
-            
-            if (ball.vx === 0 && ball.vy === 0) {
-                 staticCatImg.style.display = 'block';
-                 rotatingCatImg.style.display = 'none';
-                 meowSound.pause();
+            ball.vx = (dragStart.x - mousePos.x) * 0.15;
+            ball.vy = (dragStart.y - mousePos.y) * 0.15;
+            if (Math.hypot(ball.vx, ball.vy) < 0.1) {
+                meowSound.pause();
             }
         });
         
         function update() {
-            if (hasWon) return;
-
-            const currentSpeed = Math.hypot(ball.vx, ball.vy);
-
-            if (!isDragging && currentSpeed > 0 && currentSpeed < 0.05) {
-                ball.vx = 0;
-                ball.vy = 0;
-                staticCatImg.style.display = 'block';
-                rotatingCatImg.style.display = 'none';
-                
-                meowSound.pause();
-                meowSound.currentTime = 0;
-            } else {
-                 ball.vx *= friction;
-                 ball.vy *= friction;
-            }
-
-            ball.x += ball.vx;
-            ball.y += ball.vy;
-
-            if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
-                ball.vx *= -1;
-                ball.x = (ball.x + ball.radius > canvas.width) ? canvas.width - ball.radius : ball.radius;
-            }
-            if (ball.y + ball.radius > canvas.height || ball.y - ball.radius < 0) {
-                ball.vy *= -1;
-                ball.y = (ball.y + ball.radius > canvas.height) ? canvas.height - ball.radius : ball.radius;
-            }
-
-            for (const obstacle of obstacles) {
-                if (checkCollision(ball, obstacle)) {
-                    const prevX = ball.x - ball.vx;
-                    
-                    if (prevX + ball.radius <= obstacle.x || prevX - ball.radius >= obstacle.x + obstacle.width) {
-                        ball.vx *= -1;
-                        if (ball.x < obstacle.x) ball.x = obstacle.x - ball.radius;
-                        else ball.x = obstacle.x + obstacle.width + ball.radius;
-                    } 
-                    else {
-                        ball.vy *= -1;
-                        if (ball.y < obstacle.y) ball.y = obstacle.y - ball.radius;
-                        else ball.y = obstacle.y + obstacle.height + ball.radius;
+            if (isGameOver) return;
+            if (isTakingDamage) {
+                if (fadeIn) {
+                    if ((fadeAlpha += 0.05) >= 1) {
+                        fadeAlpha = 1; 
+                        setTimeout(() => { fadeIn = false; }, 1000);
                     }
-                    ball.vx *= 0.8;
-                    ball.vy *= 0.8;
+                } else {
+                    if ((fadeAlpha -= 0.05) <= 0) {
+                        fadeAlpha = 0; 
+                        isTakingDamage = false;
+                        loadStage(currentStage);
+                    }
+                }
+                return;
+            }
+
+            if (!isDragging) {
+                const speed = Math.hypot(ball.vx, ball.vy);
+                if (speed > 0.05) {
+                    ball.vx *= friction;
+                    ball.vy *= friction;
+                } else {
+                    ball.vx = 0;
+                    ball.vy = 0;
+                    meowSound.pause();
+                }
+                ball.x += ball.vx;
+                ball.y += ball.vy;
+            }
+
+            if (ball.x < ball.radius) { ball.x = ball.radius; ball.vx *= -1; }
+            if (ball.x > canvas.width - ball.radius) { ball.x = canvas.width - ball.radius; ball.vx *= -1; }
+            if (ball.y < ball.radius) { ball.y = ball.radius; ball.vy *= -1; }
+            if (ball.y > canvas.height - ball.radius) { ball.y = canvas.height - ball.radius; ball.vy *= -1; }
+
+            for (const obstacle of [...staticObstacles, ...movingObstacles]) {
+                if (checkCollision(ball, obstacle)) {
+                    const overlapX = ball.x - (obstacle.x + obstacle.width / 2);
+                    const overlapY = ball.y - (obstacle.y + obstacle.height / 2);
+                    const combinedHalfWidths = ball.radius + obstacle.width / 2;
+                    const combinedHalfHeights = ball.radius + obstacle.height / 2;
+                    if (Math.abs(overlapX) / combinedHalfWidths > Math.abs(overlapY) / combinedHalfHeights) {
+                        ball.vx *= -1.05;
+                        ball.x = (overlapX > 0) ? obstacle.x + obstacle.width + ball.radius : obstacle.x - ball.radius;
+                    } else {
+                        ball.vy *= -1.05;
+                        ball.y = (overlapY > 0) ? obstacle.y + obstacle.height + ball.radius : obstacle.y - ball.radius;
+                    }
+                }
+            }
+            
+            for (const obstacle of movingObstacles) {
+                obstacle.x += obstacle.vx;
+                obstacle.y += obstacle.vy;
+                
+                if (obstacle.minY !== undefined && obstacle.maxY !== undefined) {
+                    if (obstacle.y < obstacle.minY || obstacle.y + obstacle.height > obstacle.maxY) {
+                        obstacle.vy *= -1;
+                    }
+                } else {
+                    if (obstacle.x < 0 || obstacle.x + obstacle.width > canvas.width) {
+                        obstacle.vx *= -1;
+                    }
+                    if (obstacle.y < 0 || obstacle.y + obstacle.height > canvas.height) {
+                        obstacle.vy *= -1;
+                    }
                 }
             }
 
-            const distToHole = Math.hypot(ball.x - hole.x, ball.y - hole.y);
-            if (distToHole < hole.radius && currentSpeed < 3) {
-                hasWon = true;
-                ball.vx = 0;
-                ball.vy = 0;
-                staticCatImg.style.display = 'block';
-                rotatingCatImg.style.display = 'none';
-                meowSound.pause();
-
-                setTimeout(() => {
-                    window.location.href = "https://www.youtube.com/watch?v=IxX_QHay02M&t=30s";
-                }, 1500);
+            for (const spike of spikeObstacles) {
+                if (Math.hypot(ball.x - spike.x, ball.y - spike.y) < ball.radius + spike.size / 2) takeDamage();
+            }
+            if (currentStage === 3) {
+                if (ball.y < 200 + ball.radius || ball.y > 400 - ball.radius) takeDamage();
             }
 
-            if (!isDragging && (ball.vx !== 0 || ball.vy !== 0)) {
-                const maxSpeed = 20; 
-                let playbackRate = 0.5 + (currentSpeed / maxSpeed) * 1.5;
-                playbackRate = Math.max(0.2, Math.min(2.0, playbackRate));
-                meowSound.playbackRate = playbackRate;
+            if (Math.hypot(ball.x - hole.x, ball.y - hole.y) < hole.radius && Math.hypot(ball.vx, ball.vy) < 4) {
+                loadStage(currentStage + 1);
             }
         }
         
-        function updateBallImagePosition() {
-            const imageX = ball.x - ball.radius;
-            const imageY = ball.y - ball.radius;
-            staticCatImg.style.transform = `translate(${imageX}px, ${imageY}px)`;
-            rotatingCatImg.style.transform = `translate(${imageX}px, ${imageY}px)`;
-        }
-
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (isGameOver) {
+                ctx.fillStyle = 'black'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'cyan'; ctx.font = '80px Arial'; ctx.textAlign = 'center';
+                ctx.fillText('GAME CLEAR!', canvas.width / 2, canvas.height / 2 - 50);
+                const iconSize = 100;
+                ctx.globalAlpha = 0.8;
+                ctx.drawImage(staticCatImg, canvas.width / 2 - iconSize / 2 - 80, canvas.height / 2 + 40, iconSize, iconSize);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = 'white'; ctx.font = '100px Arial'; ctx.textAlign = 'left';
+                ctx.fillText(`× ${lives}`, canvas.width / 2 - 30, canvas.height / 2 + 125);
+                return;
+            }
 
-            ctx.fillStyle = hole.color;
-            ctx.beginPath();
-            ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
-            ctx.fill();
+            if (isTakingDamage) {
+                ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                if (fadeAlpha >= 1) {
+                    const iconSize = 100;
+                    ctx.drawImage(staticCatImg, canvas.width / 2 - iconSize / 2 - 60, canvas.height / 2 - iconSize/2, iconSize, iconSize);
+                    ctx.fillStyle = 'white'; ctx.font = '100px Arial'; ctx.textAlign = 'left';
+                    ctx.fillText(`× ${lives}`, canvas.width / 2 - 10, canvas.height / 2 + 35);
+                }
+                updateCatImage();
+                return;
+            }
 
-            ctx.fillStyle = 'white';
-            ctx.font = '20px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
+            if (currentStage === 3) {
+                const courseTop = 200;
+                const courseBottom = 400;
+                ctx.fillStyle = '#1a5930';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#2a8c4a";
+                ctx.fillRect(0, courseTop, canvas.width, courseBottom - courseTop);
+                if (Math.floor(Date.now() / 150) % 2 === 0) {
+                    ctx.fillStyle = 'yellow';
+                } else {
+                    ctx.fillStyle = 'orange';
+                }
+                ctx.fillRect(0, courseTop - 5, canvas.width, 5);
+                ctx.fillRect(0, courseBottom, canvas.width, 5);
+            }
+
+            ctx.fillStyle = hole.color; ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.font = '20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
             ctx.fillText('ゴール', hole.x, hole.y - hole.radius - 5);
-
-            for (const obstacle of obstacles) {
+            
+            for (const obstacle of [...staticObstacles, ...movingObstacles]) {
                 ctx.fillStyle = obstacle.color;
                 ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
             }
-
-            updateBallImagePosition();
-
-            if (isDragging) {
-                // ★修正点: 引数なしで呼び出すことでエラーを解消
-                const currentMousePos = getMousePos(); 
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-                ctx.lineWidth = 2;
+            for (const spike of spikeObstacles) {
+                ctx.save();
+                ctx.translate(spike.x, spike.y);
+                ctx.fillStyle = Math.floor(Date.now() / 150) % 2 === 0 ? spike.color : 'darkred';
                 ctx.beginPath();
-                ctx.moveTo(ball.x, ball.y);
-                ctx.lineTo(ball.x + (ball.x - currentMousePos.x), ball.y + (ball.y - currentMousePos.y));
-                ctx.stroke();
+                for(let i = 0; i < spike.points * 2; i++){
+                    const angle = Math.PI * 2 / (spike.points * 2) * i;
+                    const radius = (i % 2 === 0) ? spike.size : spike.size / 2;
+                    ctx.lineTo(radius * Math.cos(angle), radius * Math.sin(angle));
+                }
+                ctx.closePath(); ctx.fill();
+                ctx.restore();
             }
-            
-            ctx.textAlign = 'left'; 
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillStyle = 'white';
-            ctx.font = '24px Arial';
-            ctx.fillText(`打数: ${strokes}`, 20, 40);
 
-            if (hasWon) {
-                ctx.fillStyle = 'yellow';
-                ctx.font = '60px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('ゴール！', canvas.width / 2, canvas.height / 2);
-                ctx.font = '30px Arial';
-                ctx.fillText(`スコア: ${strokes}打`, canvas.width / 2, canvas.height / 2 + 50);
+            updateCatImage();
+            
+            if (isDragging) {
+                const mousePos = getMousePos();
+                const dx = ball.x - mousePos.x;
+                const dy = ball.y - mousePos.y;
+                const angle = Math.atan2(dy, dx);
+                const length = Math.min(Math.hypot(dx, dy), 150);
+
+                ctx.save();
+                ctx.translate(ball.x, ball.y);
+                ctx.rotate(angle);
+
+                ctx.strokeStyle = '#FF0000';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(length, 0);
+                ctx.stroke();
+
+                const arrowHeadSize = 15;
+                ctx.fillStyle = '#FF0000';
+                ctx.beginPath();
+                ctx.moveTo(length, 0);
+                ctx.lineTo(length - arrowHeadSize, -arrowHeadSize / 2);
+                ctx.lineTo(length - arrowHeadSize, arrowHeadSize / 2);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
             }
+
+            ctx.drawImage(staticCatImg, 20, 15, 30, 30);
+            ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = 'white'; ctx.font = '30px Arial';
+            ctx.fillText(`× ${lives}`, 60, 40);
+        }
+
+        function updateCatImage() {
+            if (isTakingDamage || isGameOver) {
+                staticCatImg.style.display = 'none';
+                rotatingCatImg.style.display = 'none';
+                return;
+            }
+            const speed = Math.hypot(ball.vx, ball.vy);
+            const isMoving = isDragging || speed > 0.05;
+            const catToShow = isMoving ? rotatingCatImg : staticCatImg;
+            const catToHide = isMoving ? staticCatImg : rotatingCatImg;
+
+            catToShow.style.display = 'block';
+            catToHide.style.display = 'none';
+
+            catToShow.style.width = `${ball.radius * 2}px`;
+            catToShow.style.height = `${ball.radius * 2}px`;
+            catToShow.style.left = `${ball.x - ball.radius}px`;
+            catToShow.style.top = `${ball.y - ball.radius}px`;
+            catToShow.style.opacity = isInvincible ? Math.abs(Math.sin(Date.now() / 100)) : 1;
         }
 
         function gameLoop() {
@@ -344,23 +439,28 @@
         }
 
         let currentEvent;
-        canvas.addEventListener('mousemove', e => { currentEvent = e; });
+        window.addEventListener('mousemove', e => { currentEvent = e; });
         function getMousePos(e) {
             const rect = canvas.getBoundingClientRect();
             const event = e || currentEvent; 
-            return {
-                x: event.clientX - rect.left,
-                y: event.clientY - rect.top
-            };
+            if (!event) return { x: 0, y: 0 };
+            return { x: event.clientX - rect.left, y: event.clientY - rect.top };
         }
         
-        window.onload = () => {
-            setupPositions();
-            generateObstacles();
-            updateBallImagePosition();
-            gameLoop();
+        let loadedImages = 0;
+        const totalImages = 2;
+        const startGame = () => {
+            loadedImages++;
+            if (loadedImages === totalImages) {
+                loadStage(1);
+                gameLoop();
+            }
         };
-        window.onresize = setupPositions;
+        staticCatImg.onload = startGame;
+        rotatingCatImg.onload = startGame;
+        
+        staticCatImg.onerror = () => document.body.innerHTML = "<h1>エラー: cat_static.png が見つかりません</h1>";
+        rotatingCatImg.onerror = () => document.body.innerHTML = "<h1>エラー: cat_rotate.gif が見つかりません</h1>";
     </script>
 </body>
 </html>
