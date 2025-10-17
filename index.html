@@ -33,6 +33,34 @@
             color: yellow;
             margin-bottom: 15px;
         }
+        #command-list {
+            position: fixed;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: sans-serif;
+            line-height: 1.5;
+            border: 1px solid #fff;
+            font-size: 12px;
+        }
+        #command-list h3 {
+            margin: 0 0 8px 0;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #fff;
+            color: #ffdd00;
+            font-size: 14px;
+        }
+        #command-list p {
+            margin: 0;
+        }
+        #command-list span {
+            font-size: 10px;
+            color: #ccc;
+        }
     </style>
 </head>
 <body>
@@ -42,6 +70,12 @@
         <canvas id="gameCanvas"></canvas>
         <img id="staticCat" src="cat_static.png" class="cat-image" alt="静止猫">
         <img id="rotatingCat" src="cat_rotate.gif" class="cat-image" alt="回転猫">
+    </div>
+
+    <div id="command-list">
+        <h3>ハードモードコマンド</h3>
+        <p>hard1, hard2, hard3, hard4</p>
+        <span>おなじコマンドでかいじょ</span>
     </div>
     
     <script>
@@ -59,8 +93,12 @@
         let currentStage = 1;
         let isGameOver = false;
         let isInvincible = false; 
-        // ★追加: ハードモード管理
-        let hardMode = false;
+
+        let hard1Mode = false;
+        let hard2Mode = false;
+        let hard3Mode = false;
+        let hard4Mode = false;
+        let lastBgChangeTime = 0;
 
         let isTakingDamage = false;
         let fadeAlpha = 0;
@@ -75,6 +113,7 @@
         const staticObstacles = [];
         const movingObstacles = [];
         const spikeObstacles = [];
+        const ghostSpikes = [];
         const propeller = {
             x: 400, y: 300, angle: 0, speed: 0.005, armLength: 300, armWidth: 40
         };
@@ -109,8 +148,9 @@
             staticObstacles.length = 0;
             movingObstacles.length = 0;
             spikeObstacles.length = 0;
+            ghostSpikes.length = 0;
             
-            const speedMultiplier = hardMode ? 2 : 1;
+            const speedMultiplier = hard1Mode ? 2 : 1;
 
             switch (stageNum) {
                 case 1:
@@ -152,7 +192,6 @@
                     hole.x = 750; hole.y = 525;
                     staticObstacles.push({ x: 0, y: 150, width: 650, height: 50, color: '#444' });
                     staticObstacles.push({ x: 150, y: 400, width: 650, height: 50, color: '#444' });
-                    // ★修正: トゲを7個に増やす
                     for(let i=0; i<7; i++) {
                         spikeObstacles.push({ 
                             x: 100 + Math.random() * 600, y: 200 + Math.random() * 200, 
@@ -166,7 +205,6 @@
                     ball.x = 50; ball.y = 300;
                     hole.x = 750; hole.y = 300;
                     propeller.angle = 0;
-                    // ★修正: ステージ5に動き回るトゲを4個追加
                     for(let i=0; i<4; i++) {
                         spikeObstacles.push({ 
                             x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, 
@@ -178,8 +216,7 @@
                     break;
             }
 
-            // ★追加: ハードモードならトゲを6個追加
-            if (hardMode) {
+            if (hard1Mode) {
                 for(let i=0; i<6; i++) {
                     spikeObstacles.push({ 
                         x: 100 + Math.random() * (canvas.width - 200), 
@@ -187,6 +224,17 @@
                         size: 30, points: 8, color: 'purple',
                         vx: (Math.random() - 0.5) * 4,
                         vy: (Math.random() - 0.5) * 4
+                    });
+                }
+            }
+            if (hard2Mode) {
+                for(let i=0; i<8; i++) {
+                    ghostSpikes.push({
+                        x: 100 + Math.random() * (canvas.width - 200), 
+                        y: 100 + Math.random() * (canvas.height - 200), 
+                        size: 40, points: 6, color: 'rgba(200, 200, 255, 0.5)',
+                        vx: (Math.random() - 0.5) * 12,
+                        vy: (Math.random() - 0.5) * 12
                     });
                 }
             }
@@ -296,6 +344,11 @@
                     ball.vy = 0;
                     meowSound.pause();
                 }
+
+                if(hard3Mode) {
+                    ball.vy += 0.002;
+                }
+
                 ball.x += ball.vx;
                 ball.y += ball.vy;
             }
@@ -338,7 +391,7 @@
                 }
             }
 
-            for (const spike of spikeObstacles) {
+            for (const spike of [...spikeObstacles, ...ghostSpikes]) {
                 if(spike.vx !== undefined && spike.vy !== undefined) {
                     spike.x += spike.vx;
                     spike.y += spike.vy;
@@ -355,8 +408,7 @@
             }
 
             if (currentStage === 5) {
-                // ★修正: ハードモードでプロペラのスピードを2倍に
-                propeller.angle += propeller.speed * (hardMode ?  2: 1);
+                propeller.angle += propeller.speed * (hard1Mode ? 2 : 1);
                 for (let i = 0; i < 4; i++) {
                     const armAngle = propeller.angle + (Math.PI / 2) * i;
                     if (checkRotatedRectCollision(ball, propeller, armAngle)) {
@@ -395,6 +447,19 @@
         }
 
         function draw() {
+            if (hard4Mode) {
+                const now = Date.now();
+                if (now - lastBgChangeTime > 100) {
+                    const r = Math.floor(Math.random() * 256);
+                    const g = Math.floor(Math.random() * 256);
+                    const b = Math.floor(Math.random() * 256);
+                    canvas.style.backgroundColor = `rgb(${r},${g},${b})`;
+                    lastBgChangeTime = now;
+                }
+            } else {
+                canvas.style.backgroundColor = '#2a8c4a';
+            }
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
             if (isGameOver) {
@@ -423,7 +488,7 @@
                 return;
             }
 
-            if (currentStage === 3) {
+            if (currentStage === 3 && !hard4Mode) {
                 const courseTop = 200;
                 const courseBottom = 400;
                 ctx.fillStyle = '#1a5930';
@@ -447,7 +512,7 @@
                 ctx.fillStyle = obstacle.color;
                 ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
             }
-            for (const spike of spikeObstacles) {
+            for (const spike of [...spikeObstacles, ...ghostSpikes]) {
                 ctx.save();
                 ctx.translate(spike.x, spike.y);
                 ctx.fillStyle = Math.floor(Date.now() / 150) % 2 === 0 ? spike.color : 'darkred';
@@ -468,7 +533,6 @@
                     ctx.save();
                     ctx.rotate((Math.PI / 2) * i);
                     if (i === 0 || i === 2) {
-                        // ★修正: 点滅を紫と暗い赤に
                         ctx.fillStyle = Math.floor(Date.now() / 150) % 2 === 0 ? 'purple' : 'darkred';
                     } else {
                         ctx.fillStyle = '#555';
@@ -549,27 +613,31 @@
         }
         
         let keySequence = '';
-        const cheatCode = 'oiia';
-        // ★追加: ハードモードコマンド
-        const hardCode = 'hard';
+        const commands = {
+            'skipiia': () => loadStage(currentStage + 1), // ★修正
+            'oiia': () => { window.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; }, // ★追加
+            'cat': () => { window.location.href = "https://www.youtube.com/watch?v=ycHVUvvOwzY"; }, // ★追加
+            'hard1': () => { hard1Mode = !hard1Mode; loadStage(currentStage); },
+            'hard2': () => { hard2Mode = !hard2Mode; loadStage(currentStage); },
+            'hard3': () => { hard3Mode = !hard3Mode; loadStage(currentStage); },
+            'hard4': () => { hard4Mode = !hard4Mode; loadStage(currentStage); }
+        };
+
         window.addEventListener('keydown', (e) => {
             if(isGameOver || isTakingDamage) return;
             keySequence += e.key.toLowerCase();
             
-            // oiiaコマンド
-            if(keySequence.endsWith(cheatCode)) {
-                loadStage(currentStage + 1);
-                keySequence = '';
+            // 最長のコマンドは skipiia (7文字) なので、それより長く保持
+            if(keySequence.length > 7) { 
+                keySequence = keySequence.slice(-7);
             }
-            // hardコマンド
-            if(keySequence.endsWith(hardCode)) {
-                hardMode = true;
-                loadStage(currentStage); // 現在のステージをハードモードでリロード
-                keySequence = '';
-            }
-            
-            if(keySequence.length > 4) {
-                keySequence = keySequence.slice(-4);
+
+            for (const code in commands) {
+                if(keySequence.endsWith(code)) {
+                    commands[code]();
+                    keySequence = ''; // コマンド実行後はシーケンスをリセット
+                    return;
+                }
             }
         });
 
