@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OIIA - OIIAゴルフ</title>
+    <title>OIIAGOLF - OIIA</title>
     <style>
         body {
             display: flex;
@@ -36,7 +36,7 @@
     </style>
 </head>
 <body>
-    <h1>OIIAをひっぱってゴールに入れよう！</h1>
+    <h1>OIIAをひっぱってゴールにいれよう</h1>
 
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
@@ -59,6 +59,8 @@
         let currentStage = 1;
         let isGameOver = false;
         let isInvincible = false; 
+        // ★追加: ハードモード管理
+        let hardMode = false;
 
         let isTakingDamage = false;
         let fadeAlpha = 0;
@@ -73,6 +75,9 @@
         const staticObstacles = [];
         const movingObstacles = [];
         const spikeObstacles = [];
+        const propeller = {
+            x: 400, y: 300, angle: 0, speed: 0.005, armLength: 300, armWidth: 40
+        };
         
         const friction = 0.985;
         let isDragging = false;
@@ -84,7 +89,7 @@
         }
 
         function loadStage(stageNum) {
-            if (stageNum > 3) {
+            if (stageNum > 5) {
                 isGameOver = true;
                 setCanvasSize(800, 600);
                 setTimeout(() => {
@@ -104,6 +109,8 @@
             staticObstacles.length = 0;
             movingObstacles.length = 0;
             spikeObstacles.length = 0;
+            
+            const speedMultiplier = hardMode ? 2 : 1;
 
             switch (stageNum) {
                 case 1:
@@ -127,24 +134,61 @@
                 case 3:
                     ball.x = 50; ball.y = 300;
                     hole.x = 750; hole.y = 300;
-                    
-                    // ★修正: 可動域を定義
                     const centerY = canvas.height / 2;
-                    const range = (canvas.height / 2) * 1.3; // 全体の半分の1.3倍
+                    const range = (canvas.height / 2) * 1.3;
                     const minY = centerY - range / 2;
-                    const maxY = centerY + range / 2;
-
                     for (let i = 0; i < 5; i++) {
                         movingObstacles.push({
-                            x: 150 + i * 120, y: minY + Math.random() * (range - 120), // 初期位置も範囲内に
+                            x: 150 + i * 120, y: minY + Math.random() * (range - 120),
                             width: 60, height: 120,
-                            vx: 0, vy: (2.5 + Math.random()) * 0.5,
-                            minY: minY, // 可動域の下限
-                            maxY: maxY, // 可動域の上限
+                            vx: 0, vy: ((2.5 + Math.random()) * 0.5) * speedMultiplier,
+                            minY: minY, maxY: centerY + range / 2,
                             color: '#555'
                         });
                     }
                     break;
+                case 4:
+                    ball.x = 50; ball.y = 75;
+                    hole.x = 750; hole.y = 525;
+                    staticObstacles.push({ x: 0, y: 150, width: 650, height: 50, color: '#444' });
+                    staticObstacles.push({ x: 150, y: 400, width: 650, height: 50, color: '#444' });
+                    // ★修正: トゲを7個に増やす
+                    for(let i=0; i<7; i++) {
+                        spikeObstacles.push({ 
+                            x: 100 + Math.random() * 600, y: 200 + Math.random() * 200, 
+                            size: 30, points: 8, color: 'purple',
+                            vx: (Math.random() - 0.5) * 4,
+                            vy: (Math.random() - 0.5) * 4
+                        });
+                    }
+                    break;
+                case 5:
+                    ball.x = 50; ball.y = 300;
+                    hole.x = 750; hole.y = 300;
+                    propeller.angle = 0;
+                    // ★修正: ステージ5に動き回るトゲを4個追加
+                    for(let i=0; i<4; i++) {
+                        spikeObstacles.push({ 
+                            x: 100 + Math.random() * 600, y: 100 + Math.random() * 400, 
+                            size: 35, points: 8, color: 'purple',
+                            vx: (Math.random() - 0.5) * 3,
+                            vy: (Math.random() - 0.5) * 3
+                        });
+                    }
+                    break;
+            }
+
+            // ★追加: ハードモードならトゲを6個追加
+            if (hardMode) {
+                for(let i=0; i<6; i++) {
+                    spikeObstacles.push({ 
+                        x: 100 + Math.random() * (canvas.width - 200), 
+                        y: 100 + Math.random() * (canvas.height - 200), 
+                        size: 30, points: 8, color: 'purple',
+                        vx: (Math.random() - 0.5) * 4,
+                        vy: (Math.random() - 0.5) * 4
+                    });
+                }
             }
         }
 
@@ -280,7 +324,6 @@
             for (const obstacle of movingObstacles) {
                 obstacle.x += obstacle.vx;
                 obstacle.y += obstacle.vy;
-                
                 if (obstacle.minY !== undefined && obstacle.maxY !== undefined) {
                     if (obstacle.y < obstacle.minY || obstacle.y + obstacle.height > obstacle.maxY) {
                         obstacle.vy *= -1;
@@ -296,10 +339,34 @@
             }
 
             for (const spike of spikeObstacles) {
+                if(spike.vx !== undefined && spike.vy !== undefined) {
+                    spike.x += spike.vx;
+                    spike.y += spike.vy;
+                    if (spike.x - spike.size / 2 < 0 || spike.x + spike.size / 2 > canvas.width) spike.vx *= -1;
+                    if (spike.y - spike.size / 2 < 0 || spike.y + spike.size / 2 > canvas.height) spike.vy *= -1;
+                }
+            }
+
+            for (const spike of spikeObstacles) {
                 if (Math.hypot(ball.x - spike.x, ball.y - spike.y) < ball.radius + spike.size / 2) takeDamage();
             }
             if (currentStage === 3) {
                 if (ball.y < 200 + ball.radius || ball.y > 400 - ball.radius) takeDamage();
+            }
+
+            if (currentStage === 5) {
+                // ★修正: ハードモードでプロペラのスピードを2倍に
+                propeller.angle += propeller.speed * (hardMode ?  2: 1);
+                for (let i = 0; i < 4; i++) {
+                    const armAngle = propeller.angle + (Math.PI / 2) * i;
+                    if (checkRotatedRectCollision(ball, propeller, armAngle)) {
+                        if (i === 0 || i === 2) {
+                           takeDamage();
+                        } else {
+                            ball.vx *= -1.1; ball.vy *= -1.1;
+                        }
+                    }
+                }
             }
 
             if (Math.hypot(ball.x - hole.x, ball.y - hole.y) < hole.radius && Math.hypot(ball.vx, ball.vy) < 4) {
@@ -307,6 +374,26 @@
             }
         }
         
+        function checkRotatedRectCollision(circle, rect, angle) {
+            const rectX = rect.x;
+            const rectY = rect.y;
+            const circleX = circle.x - rectX;
+            const circleY = circle.y - rectY;
+            const rotatedX = circleX * Math.cos(-angle) - circleY * Math.sin(-angle);
+            const rotatedY = circleX * Math.sin(-angle) + circleY * Math.cos(-angle);
+            const armRect = {
+                x: 0,
+                y: -rect.armWidth / 2,
+                width: rect.armLength,
+                height: rect.armWidth
+            };
+            let closestX = Math.max(armRect.x, Math.min(rotatedX, armRect.x + armRect.width));
+            let closestY = Math.max(armRect.y, Math.min(rotatedY, armRect.y + armRect.height));
+            let dX = rotatedX - closestX;
+            let dY = rotatedY - closestY;
+            return (dX * dX + dY * dY) < (circle.radius * circle.radius);
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
@@ -373,6 +460,24 @@
                 ctx.closePath(); ctx.fill();
                 ctx.restore();
             }
+            if (currentStage === 5) {
+                ctx.save();
+                ctx.translate(propeller.x, propeller.y);
+                ctx.rotate(propeller.angle);
+                for (let i = 0; i < 4; i++) {
+                    ctx.save();
+                    ctx.rotate((Math.PI / 2) * i);
+                    if (i === 0 || i === 2) {
+                        // ★修正: 点滅を紫と暗い赤に
+                        ctx.fillStyle = Math.floor(Date.now() / 150) % 2 === 0 ? 'purple' : 'darkred';
+                    } else {
+                        ctx.fillStyle = '#555';
+                    }
+                    ctx.fillRect(0, -propeller.armWidth / 2, propeller.armLength, propeller.armWidth);
+                    ctx.restore();
+                }
+                ctx.restore();
+            }
 
             updateCatImage();
             
@@ -382,18 +487,15 @@
                 const dy = ball.y - mousePos.y;
                 const angle = Math.atan2(dy, dx);
                 const length = Math.min(Math.hypot(dx, dy), 150);
-
                 ctx.save();
                 ctx.translate(ball.x, ball.y);
                 ctx.rotate(angle);
-
                 ctx.strokeStyle = '#FF0000';
                 ctx.lineWidth = 5;
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
                 ctx.lineTo(length, 0);
                 ctx.stroke();
-
                 const arrowHeadSize = 15;
                 ctx.fillStyle = '#FF0000';
                 ctx.beginPath();
@@ -402,7 +504,6 @@
                 ctx.lineTo(length - arrowHeadSize, arrowHeadSize / 2);
                 ctx.closePath();
                 ctx.fill();
-
                 ctx.restore();
             }
 
@@ -447,6 +548,31 @@
             return { x: event.clientX - rect.left, y: event.clientY - rect.top };
         }
         
+        let keySequence = '';
+        const cheatCode = 'oiia';
+        // ★追加: ハードモードコマンド
+        const hardCode = 'hard';
+        window.addEventListener('keydown', (e) => {
+            if(isGameOver || isTakingDamage) return;
+            keySequence += e.key.toLowerCase();
+            
+            // oiiaコマンド
+            if(keySequence.endsWith(cheatCode)) {
+                loadStage(currentStage + 1);
+                keySequence = '';
+            }
+            // hardコマンド
+            if(keySequence.endsWith(hardCode)) {
+                hardMode = true;
+                loadStage(currentStage); // 現在のステージをハードモードでリロード
+                keySequence = '';
+            }
+            
+            if(keySequence.length > 4) {
+                keySequence = keySequence.slice(-4);
+            }
+        });
+
         let loadedImages = 0;
         const totalImages = 2;
         const startGame = () => {
