@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>OIIAGOLF - OIIA</title>
     <style>
         body {
@@ -13,7 +14,8 @@
             margin: 0;
             background-color: #333;
             font-family: sans-serif;
-            overflow: auto;
+            overflow: hidden;
+            touch-action: none;
         }
         #game-container {
             position: relative;
@@ -32,6 +34,7 @@
         h1 {
             color: yellow;
             margin-bottom: 15px;
+            font-size: 1.5em;
         }
         #command-list {
             position: fixed;
@@ -61,6 +64,36 @@
             font-size: 10px;
             color: #ccc;
         }
+        /* ★追加: スマホ用コマンド入力UI */
+        #command-input-container {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+        }
+        #command-button {
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            background-color: rgba(0,0,0,0.5);
+            color: white;
+            border: 1px solid white;
+            border-radius: 5px;
+            display: none; /* PCでは非表示 */
+        }
+        #command-input {
+            position: absolute;
+            left: -9999px; /* 画面外に隠す */
+            opacity: 0;
+        }
+        /* スマホやタブレットでのみコマンドボタンを表示 */
+        @media (hover: none) and (pointer: coarse) {
+            #command-button {
+                display: block;
+            }
+            #command-list {
+                display: none; /* スマホではコマンドリストを非表示 */
+            }
+        }
     </style>
 </head>
 <body>
@@ -77,6 +110,11 @@
         <p>hard1, hard2, hard3, hard4</p>
         <span>おなじコマンドでかいじょ</span>
     </div>
+
+    <div id="command-input-container">
+        <button id="command-button">⌨</button>
+        <input type="text" id="command-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
     
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -84,6 +122,10 @@
         
         const staticCatImg = document.getElementById('staticCat');
         const rotatingCatImg = document.getElementById('rotatingCat');
+        
+        // ★追加: コマンドUIの要素を取得
+        const commandButton = document.getElementById('command-button');
+        const commandInput = document.getElementById('command-input');
 
         const meowSound = new Audio('cat_meow.mp3');
         meowSound.loop = true;
@@ -121,6 +163,7 @@
         const friction = 0.985;
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
+        let currentPointerPos = { x: 0, y: 0 };
 
         function setCanvasSize(width, height) {
             canvas.width = width;
@@ -288,33 +331,6 @@
                 if (validPosition) staticObstacles.push(newObstacle);
             }
         }
-
-        canvas.addEventListener('mousedown', (e) => {
-            if (isGameOver || isTakingDamage) return;
-            const mousePos = getMousePos(e);
-            if (Math.hypot(mousePos.x - ball.x, mousePos.y - ball.y) < ball.radius) {
-                isDragging = true;
-                dragStart.x = mousePos.x;
-                dragStart.y = mousePos.y;
-                ball.vx = 0;
-                ball.vy = 0;
-                meowSound.playbackRate = 1.0;
-                meowSound.currentTime = 0;
-                meowSound.play();
-            }
-        });
-        
-        window.addEventListener('mouseup', (e) => {
-            if (!isDragging) return;
-            isDragging = false;
-            isInvincible = false;
-            const mousePos = getMousePos(e);
-            ball.vx = (dragStart.x - mousePos.x) * 0.15;
-            ball.vy = (dragStart.y - mousePos.y) * 0.15;
-            if (Math.hypot(ball.vx, ball.vy) < 0.1) {
-                meowSound.pause();
-            }
-        });
         
         function update() {
             if (isGameOver) return;
@@ -546,7 +562,7 @@
             updateCatImage();
             
             if (isDragging) {
-                const mousePos = getMousePos();
+                const mousePos = currentPointerPos;
                 const dx = ball.x - mousePos.x;
                 const dy = ball.y - mousePos.y;
                 const angle = Math.atan2(dy, dx);
@@ -603,31 +619,78 @@
             requestAnimationFrame(gameLoop);
         }
 
-        let currentEvent;
-        window.addEventListener('mousemove', e => { currentEvent = e; });
-        function getMousePos(e) {
+        function getPointerPos(e) {
             const rect = canvas.getBoundingClientRect();
-            const event = e || currentEvent; 
-            if (!event) return { x: 0, y: 0 };
-            return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+            const source = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : e);
+            // ★修正: イベントソースがない場合のフォールバック
+            if (!source) return currentPointerPos;
+            return { x: source.clientX - rect.left, y: source.clientY - rect.top };
+        }
+
+        function handlePointerDown(e) {
+            if (isGameOver || isTakingDamage) return;
+            const pos = getPointerPos(e);
+            if (Math.hypot(pos.x - ball.x, pos.y - ball.y) < ball.radius) {
+                e.preventDefault(); 
+                isDragging = true;
+                dragStart.x = pos.x;
+                dragStart.y = pos.y;
+                currentPointerPos = pos;
+                ball.vx = 0; ball.vy = 0;
+                meowSound.playbackRate = 1.0; meowSound.currentTime = 0; meowSound.play();
+            }
+        }
+
+        function handlePointerMove(e) {
+            if (!isDragging) return;
+            e.preventDefault();
+            currentPointerPos = getPointerPos(e);
+        }
+
+        function handlePointerUp(e) {
+            if (!isDragging) return;
+            e.preventDefault();
+            isDragging = false;
+            isInvincible = false;
+            const endPos = getPointerPos(e);
+            ball.vx = (dragStart.x - endPos.x) * 0.15;
+            ball.vy = (dragStart.y - endPos.y) * 0.15;
+            if (Math.hypot(ball.vx, ball.vy) < 0.1) {
+                meowSound.pause();
+            }
         }
         
+        canvas.addEventListener('mousedown', handlePointerDown);
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mouseup', handlePointerUp);
+        canvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+        window.addEventListener('touchmove', handlePointerMove, { passive: false });
+        window.addEventListener('touchend', handlePointerUp, { passive: false });
+
+        // ★修正: PCとスマホ両対応のコマンド入力
         let keySequence = '';
         const commands = {
-            'skipiia': () => loadStage(currentStage + 1), // ★修正
-            'oiia': () => { window.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; }, // ★追加
-            'cat': () => { window.location.href = "https://www.youtube.com/watch?v=ycHVUvvOwzY"; }, // ★追加
+            'skipiia': () => loadStage(currentStage + 1),
+            'oiia': () => { window.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; },
+            'cat': () => { window.location.href = "https://www.youtube.com/watch?v=ycHVUvvOwzY"; },
             'hard1': () => { hard1Mode = !hard1Mode; loadStage(currentStage); },
             'hard2': () => { hard2Mode = !hard2Mode; loadStage(currentStage); },
             'hard3': () => { hard3Mode = !hard3Mode; loadStage(currentStage); },
             'hard4': () => { hard4Mode = !hard4Mode; loadStage(currentStage); }
         };
 
+        function executeCommand(input) {
+            if (commands[input]) {
+                commands[input]();
+                return true;
+            }
+            return false;
+        }
+
         window.addEventListener('keydown', (e) => {
             if(isGameOver || isTakingDamage) return;
             keySequence += e.key.toLowerCase();
             
-            // 最長のコマンドは skipiia (7文字) なので、それより長く保持
             if(keySequence.length > 7) { 
                 keySequence = keySequence.slice(-7);
             }
@@ -635,11 +698,23 @@
             for (const code in commands) {
                 if(keySequence.endsWith(code)) {
                     commands[code]();
-                    keySequence = ''; // コマンド実行後はシーケンスをリセット
+                    keySequence = '';
                     return;
                 }
             }
         });
+
+        commandButton.addEventListener('click', () => {
+            commandInput.focus();
+        });
+
+        commandInput.addEventListener('change', () => {
+            const input = commandInput.value.toLowerCase().trim();
+            executeCommand(input);
+            commandInput.value = '';
+            commandInput.blur();
+        });
+
 
         let loadedImages = 0;
         const totalImages = 2;
